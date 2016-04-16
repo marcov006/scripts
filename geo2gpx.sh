@@ -15,7 +15,7 @@ do
 	cmd="$cmd -f '$f'"
 done
 
-cmd="$cmd -i gpx -f $2 -o gpx -F $3"
+cmd="$cmd -i gpx -f '$2' -o gpx -F $3"
 
 #echo $cmd
 eval $cmd
