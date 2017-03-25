@@ -1,0 +1,132 @@
+#!/bin/bash
+# Daily run sparse and smatch static checker on GNU/Linux
+
+green='\e[0;32m'
+red='\e[0;31m'
+nc='\e[0m'
+
+WORK="/work"
+DATE=$(date +"%m_%d_%Y")
+LOG="$WORK/log"
+
+set -eux
+
+me=$(readlink -f "$0")
+
+if [ ! -e "$me.cfg" ]; then
+	echo -e "${red} missing $me.cfg file"
+	exit 1
+fi
+
+sparse_setup()
+{
+	echo -e ${green}$FUNCNAME:${@}${nc}
+	cd "$WORK"
+	SPARSE="$WORK/sparse"
+	CHECK_FLAGS="-Wsparse-all"
+	#CHECK_FLAGS="-Wtypesign"
+	if [ ! -d "$SPARSE/.git" ]
+	then
+		echo -e "${green}cloning sparse...${nc}"
+		git clone git://git.kernel.org/pub/scm/devel/sparse/sparse.git
+	else
+		cd "$SPARSE"
+		echo -e "${green}pulling sparse...${nc}"
+		git fetch origin
+		#git checkout origin/master
+		git checkout v0.5.0
+	fi
+	cd "$SPARSE"
+	echo -e "${green}making sparse...${nc}"
+	make clean
+	make
+	PATH=$SPARSE:$PATH
+}
+
+smatch_setup()
+{
+	echo -e ${green}$FUNCNAME:${@}${nc}
+	cd "$WORK"
+	SMATCH="$WORK/smatch"
+	if [ ! -d "$SMATCH/.git" ] 
+	then
+		echo -e "${green}cloning smatch...${nc}"
+		git clone http://repo.or.cz/smatch.git
+	else
+		cd "$SMATCH"
+		echo -e "${green}pulling smatch...${nc}"
+		git fetch origin
+		git checkout origin/master
+	fi
+	cd "$SMATCH"
+	echo -e "${green}making smatch...${nc}"
+	make
+}
+
+x86_setup()
+{
+	CROSSCOMPILE=
+}
+
+arm_setup()
+{
+	echo -e ${green}$FUNCNAME:${@}${nc}
+	CROSSCOMPILE=arm-none-eabi-
+}
+
+linux_setup()
+{
+	echo -e ${green}$FUNCNAME:${@}${nc}
+	cd "$WORK"
+	LINUX="$WORK/linux"
+	if [ ! -d "$LINUX/.git" ] 
+	then
+		echo -e "${green}cloning linux...${nc}"
+		git clone git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+		git remote add next git://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+	else
+		cd "$LINUX"
+		echo -e "${green}pulling linux...${nc}"
+		git reset --hard
+		git remote update origin
+		git remote update next
+		git checkout "$1"
+		make distclean
+		make ARCH="$2" "$3"
+	fi
+}
+
+sparse()
+{
+	echo -e ${green}$FUNCNAME:${@}${nc}
+	cd "$LINUX"
+	make -k ARCH=$1 CROSS_COMPILE=$CROSSCOMPILE -j$(getconf _NPROCESSORS_ONLN) C=2 CHECKFLAGS=$CHECK_FLAGS > $LOG/sparse_$1_$2_${DATE}_build.out 2>&1
+}
+
+smatch()
+{
+	echo -e ${green}$FUNCNAME:${@}${nc}
+	cd "$LINUX"
+	make -k ARCH=$1 CROSS_COMPILE=$CROSSCOMPILE -j$(getconf _NPROCESSORS_ONLN) CHECK="$SMATCH/smatch -p=kernel" C=1 bzImage modules | tee "$LOG/smatch_$1_$2_${DATE}_build.out"
+}
+
+cscope_ctags()
+{
+	echo -e ${green}$FUNCNAME:${@}${nc}
+	cd "$LINUX"
+	echo -e "${green}Build ctags data base...${nc}"   
+	make -j$(getconf _NPROCESSORS_ONLN) tags
+	echo -e "${green}Build cscope data base...${nc}"   
+	find . -name "*.[chxsS]" -print > ./cscope.files
+	cscope -b -q -k -R 
+}
+
+mkdir -p "$WORK"/log
+while read TOOL ARCH DEFCONFIG GIT; do 
+	"${TOOL}"_setup
+	"${ARCH}"_setup
+	linux_setup "$GIT" "$ARCH" "$DEFCONFIG"
+	"$TOOL" "$ARCH" "$DEFCONFIG"
+done < "$me".cfg
+
+cscope_ctags
