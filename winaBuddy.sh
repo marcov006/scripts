@@ -10,9 +10,12 @@ RUN=false
 
 MACHINE_TYPE=`getconf LONG_BIT`
 if [ ! ${MACHINE_TYPE} == '32' ]; then
-	echo Winamax under wine needs 32-bits... schroot?
-	exit 1
+	if [ ! `dpkg --print-foreign-architectures` == 'i386' ]; then
+		echo Winamax under wine needs 32-bits... schroot?
+		exit
+	fi
 fi
+echo "running on a ${MACHINE_TYPE}-bits machine with `dpkg --print-foreign-architectures` support", fine.
 
 while true; do
 	case "${1:-unset}" in
@@ -23,6 +26,25 @@ while true; do
 		*) RUN=true; break;;
 	esac
 done
+
+function dep_check {
+	local count=0
+
+	for p in wine winbind
+	do
+		dpkg -s $p &> /dev/null
+		if [ $? == 1 ]; then
+			echo $p package is missing - apt-get install $p
+			count+=1
+		else
+			echo $p is installed, fine.
+		fi
+	done
+	if [ $count != 0 ]; then
+		exit
+	fi
+}
+dep_check
 
 function install {
 	winecfg #xp mode
