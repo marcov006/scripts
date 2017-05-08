@@ -12,6 +12,12 @@ remotes[rpi-firmware]="git://github.com/raspberrypi/firmware.git"
 remotes[buildroot]="https://github.com/buildroot/buildroot.git"
 remotes[linux]="https://github.com/raspberrypi/linux"
 remotes[qemu]="https://github.com/qemu/qemu.git"
+remotes[poky]="git://git.yoctoproject.org/poky.git"
+
+declare -A meta
+meta[meta-openembedded]="git://git.openembedded.org/meta-openembedded"
+meta[meta-qt5]="https://github.com/meta-qt5/meta-qt5.git"
+meta[meta-raspberrypi]="git://git.yoctoproject.org/meta-raspberrypi"
 
 RELEASE="2017-04-10"
 RASPBIAN_URL="https://downloads.raspberrypi.org/raspbian_lite/images/raspbian_lite-'$RELEASE'/'$RELEASE'-raspbian-jessie-lite.zip"
@@ -23,6 +29,7 @@ LINUX=false
 BUILDROOT=false
 RASPBIAN=false
 QEMU=false
+POKY=false
 SDCARD=false
 UPDATE=false
 DEV=/dev/sdb
@@ -37,6 +44,7 @@ while true; do
 		-b | --buildroot) BUILDROOT=true; shift ;;
 		-R | --raspbian) RASPBIAN=true; shift ;;
 		-q | --qemu) QEMU=true; shift ;;
+		-p | --poky) POKY=true; shift ;;
 		-s | --sdcard) SDCARD=true; shift ;;
 		-U | --update) UPDATE=true; shift ;;
 		-d | --dev) DEV=$2; shift 2;;
@@ -82,6 +90,31 @@ for r in "${!remotes[@]}"; do
 		#update remote?
 	fi
 done
+
+if $POKY; then
+	echo "Checking meta-yocto sources folder..."
+	for r in "${!meta[@]}"; do
+		if [ ! -d "$SOURCE"/poky/"$r" ]; then
+			echo "$SOURCE/poky/"$r" does not exist... cloning a fresh repo";
+			[ -d "$SOURCE/poky" ] || mkdir -p "$SOURCE/poky"
+			cd "$SOURCE/poky" && git clone -b morty "${meta[$r]}"
+			cd -
+		else
+			echo "$r found, skip"
+			#update remote?
+		fi
+	done
+
+	echo "Building yocto..."
+	cd "$SOURCE"/poky
+	git checkout origin/morty
+	set +u
+	source oe-init-build-env
+	set -u
+	bitbake-layers add-layer ../meta-qt5
+	bitbake-layers add-layer ../meta-raspberrypi
+	MACHINE=raspberrypi2 bitbake core-image-minimal
+fi
 
 if $QEMU && [ ! -f "$SOURCE"/qemu/arm-softmmu/qemu-system-arm ]; then
 	echo "Building QEMU from sources"
