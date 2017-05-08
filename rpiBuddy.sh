@@ -11,6 +11,7 @@ remotes[u-boot]="git://git.denx.de/u-boot.git"
 remotes[rpi-firmware]="git://github.com/raspberrypi/firmware.git"
 remotes[buildroot]="https://github.com/buildroot/buildroot.git"
 remotes[linux]="https://github.com/raspberrypi/linux"
+remotes[qemu]="https://github.com/qemu/qemu.git"
 
 RELEASE="2017-04-10"
 RASPBIAN_URL="https://downloads.raspberrypi.org/raspbian_lite/images/raspbian_lite-'$RELEASE'/'$RELEASE'-raspbian-jessie-lite.zip"
@@ -21,6 +22,7 @@ UBOOT=false
 LINUX=false
 BUILDROOT=false
 RASPBIAN=false
+QEMU=false
 SDCARD=false
 UPDATE=false
 DEV=/dev/sdb
@@ -34,6 +36,7 @@ while true; do
 		-l | --linux) LINUX=true; shift ;;
 		-b | --buildroot) BUILDROOT=true; shift ;;
 		-R | --raspbian) RASPBIAN=true; shift ;;
+		-q | --qemu) QEMU=true; shift ;;
 		-s | --sdcard) SDCARD=true; shift ;;
 		-U | --update) UPDATE=true; shift ;;
 		-d | --dev) DEV=$2; shift 2;;
@@ -80,19 +83,28 @@ for r in "${!remotes[@]}"; do
 	fi
 done
 
-if $RASPBIAN; then
+if $QEMU && [ ! -f "$SOURCE"/qemu/arm-softmmu/qemu-system-arm ]; then
+	echo "Building QEMU from sources"
+	cd "$SOURCE"/qemu
+	git submodule init
+	git submodule update --recursive
+	for pkg in pkg-config libglib2.0-dev libfdt-dev libpixman-1-dev zlib1g-dev; do
+		dpkg -s $pkg 2>/dev/null >/dev/null || sudo apt-get -y install $pkg
+	done
+	./configure --target-list=arm-softmmu,arm-linux-user,aarch64-softmmu,aarch64-linux-user
+	make -j$(nproc)
+fi
+
+if $RASPBIAN && [ ! -f "$SOURCE"/raspbian/"$RELEASE"-raspbian-jessie-lite.img ]; then
 	echo "Downloading last raspbian image..."
-	if [ ! -f "$SOURCE"/raspbian/"$RELEASE"-raspbian-jessie-lite.img ]; then
-		echo "$SOURCE/raspbian does not exist... downloading latest rasbian image";
-		[ -d "$SOURCE" ] || mkdir -p "$SOURCE"
-		[ -d "$SOURCE"/raspbian ] || mkdir -p "$SOURCE"/raspbian
-		cd "$SOURCE"/raspbian
-		if [ ! -f "$SOURCE"/raspbian/"$RELEASE"-raspbian-jessie-lite.zip ]; then
-			wget "$RASPBIAN_URL"
-		fi
-		unzip "$RELEASE"-raspbian-jessie-lite.zip
-		cd -
+	[ -d "$SOURCE" ] || mkdir -p "$SOURCE"
+	[ -d "$SOURCE"/raspbian ] || mkdir -p "$SOURCE"/raspbian
+	cd "$SOURCE"/raspbian
+	if [ ! -f "$SOURCE"/raspbian/"$RELEASE"-raspbian-jessie-lite.zip ]; then
+		wget "$RASPBIAN_URL"
 	fi
+	unzip "$RELEASE"-raspbian-jessie-lite.zip
+	cd -
 fi
 
 echo "Exporting arm cross-compiling tools...."
@@ -203,4 +215,12 @@ if $UPDATE; then
 	sudo umount "$MNT"/fat
 	sudo umount "$MNT"/ext4
 	echo SDCARD is ready, you can unplug it and try it on your Raspberry pi$RPI board!!!
+fi
+
+if $QEMU; then
+	if [ $RPI -eq 2 ];then
+		"$SOURCE"/qemu/arm-softmmu/qemu-system-arm -M raspi2 -nographic -kernel "$SOURCE/u-boot/u-boot"
+	else
+		"$SOURCE"/qemu/aarch64-softmmu/qemu-system-aarch64 -M raspi3 -nographic -kernel "$SOURCE/u-boot/u-boot"
+	fi
 fi
